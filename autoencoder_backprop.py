@@ -8,6 +8,46 @@ def sigmoid_deriv(x):
     return y
 
 
+def backpropagation(visibleSize, hiddenSize, numData, W1, W2, b1, b2, trainingSet, weightDecayLambda=0):
+    # GRAD INITIALIZATION
+    W1grad = zeros((hiddenSize, visibleSize))
+    W2grad = zeros((visibleSize, hiddenSize))
+
+    # FORWARD PASS
+    hidZ = dot(W1, trainingSet)+repeat(b1, numData, 1)
+    hidA = scipy.special.expit(hidZ)
+    # this is the sigmoid function
+    outZ = dot(W2, hidA)+repeat(b2, numData, 1)
+    out = scipy.special.expit(outZ)
+
+    # COST CALCULATION
+    errors = [linalg.norm(out[:, i]-trainingSet[:, i]) for i in range(numData)]
+    cost = 0.5*sum(errors)
+    cost += (weightDecayLambda/2.0)*(sum(sum(W1**2))+sum(sum(W2**2)))
+
+    # DELTA CALCULATION
+    # delta for output layer
+    deltaOutput = (-(trainingSet-out)) * sigmoid_deriv(outZ)
+    # visibleSize by numData
+    deltaHidden = dot(W2.transpose(), deltaOutput) * sigmoid_deriv(hidZ)
+    # hiddenSize by numData
+
+    # the partial W partial J(W, b, x, y) x is the ith data
+    # activation[previous_layer] times deltaOftheLayer
+    # sum over all that
+
+    for i in range(numData):
+        W1grad += outer(deltaHidden[:, i], trainingSet[:, i])
+        W2grad += outer(deltaOutput[:, i], hidA[:, i])
+
+    W1grad /= numData
+    W2grad /= numData
+    b1grad = deltaHidden.sum(axis=1)/numData
+    b2grad = deltaOutput.sum(axis=1)/numData
+
+    return W1grad, W2grad, b1grad, b2grad, cost
+
+
 def train(trainingSet, hiddenSize, learningRate, maxIteration=250000, weightDecayLambda=0):
     visibleSize = trainingSet.shape[0]
     numData = trainingSet.shape[1]
@@ -23,7 +63,8 @@ def train(trainingSet, hiddenSize, learningRate, maxIteration=250000, weightDeca
     it = 0
 
     while True:
-        W1grad, W2grad, b1grad, b2grad, cost = backpropagation(visibleSize, hiddenSize, numData, W1, W2, b1, b2, trainingSet)
+        W1grad, W2grad, b1grad, b2grad, cost = backpropagation(visibleSize, \
+            hiddenSize, numData, W1, W2, b1, b2, trainingSet, weightDecayLambda)
         # already divided by the size of training set
 
         if all(W1grad == zeros((hiddenSize, visibleSize))) and \
@@ -53,45 +94,6 @@ def forword(inputData, W1, W2, b1, b2):
     return out
 
 
-def backpropagation(visibleSize, hiddenSize, numData, W1, W2, b1, b2, trainingSet):
-    # GRAD INITIALIZATION
-    W1grad = zeros((hiddenSize, visibleSize))
-    W2grad = zeros((visibleSize, hiddenSize))
-
-    # FORWARD PASS
-    hidZ = dot(W1, trainingSet)+repeat(b1, numData, 1)
-    hidA = scipy.special.expit(hidZ)
-    # this is the sigmoid function
-    outZ = dot(W2, hidA)+repeat(b2, numData, 1)
-    out = scipy.special.expit(outZ)
-
-    # COST CALCULATION
-    errors = [linalg.norm(out[:, i]-trainingSet[:, i]) for i in range(numData)]
-    cost = 0.5*sum(errors)
-
-    # DELTA CALCULATION
-    # delta for output layer
-    deltaOutput = (-(trainingSet-out)) * sigmoid_deriv(outZ)
-    # visibleSize by numData
-    deltaHidden = dot(W2.transpose(), deltaOutput) * sigmoid_deriv(hidZ)
-    # hiddenSize by numData
-
-    # the partial W partial J(W, b, x, y) x is the ith data
-    # activation[previous_layer] times deltaOftheLayer
-    # sum over all that
-
-    for i in range(numData):
-        W1grad += outer(deltaHidden[:, i], trainingSet[:, i])
-        W2grad += outer(deltaOutput[:, i], hidA[:, i])
-
-    W1grad /= numData
-    W2grad /= numData
-    b1grad = deltaHidden.sum(axis=1)/numData
-    b2grad = deltaOutput.sum(axis=1)/numData
-
-    return W1grad, W2grad, b1grad, b2grad, cost
-
-
 def test_autoencoder(trainingSet, W1, W2, b1, b2):
     numData = trainingSet.shape[1]
     s = 0
@@ -109,7 +111,7 @@ if __name__ == "__main__":
     hiddenSize = 6
     alpha = 0.02  # learning rate
     trainingSet = array([(0.1, 0.2, 0.4, 0.25), (0.2, 0.4, 0.8, 0.5), (0.3, 0.5, 0.9, 0.6)])
-    W1, W2, b1, b2 = train(trainingSet, hiddenSize, alpha, weightDecayLambda=0.0000005)
+    W1, W2, b1, b2 = train(trainingSet, hiddenSize, alpha, weightDecayLambda=0.000001)
 
     score = test_autoencoder(trainingSet, W1, W2, b1, b2)
     print("Score: %.5f" % (score*1000))
@@ -118,20 +120,9 @@ if __name__ == "__main__":
 # test_autoencoder error measurement over the training set:
 #   without the weight decay term:
 #       (hiddenSize = 6, alpha = 0.02)
-#       50k iter Cost: 0.38903
-#       100k iter Cost: 0.08556
-#       150k iter Cost: 0.07753
-#       200k iter Cost: 0.07045
-#       250k iter Cost: 0.06551
 #       Score: 1.24566
 #
 #   with the weight decay term:
 #       (hiddenSize = 6, alpha = 0.02)
 #       when weightDecayLambda=0.0001, the autoencoder performs much worse in this training set
-#       when weightDecayLambda=0.000001,
-#       50k iter Cost: 0.39559
-#       100k iter Cost: 0.08378
-#       150k iter Cost: 0.07297
-#       200k iter Cost: 0.06587
-#       250k iter Cost: 0.06133
-#       Score: 1.14421
+#       when weightDecayLambda=0.000001, Score: 1.14421

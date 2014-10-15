@@ -1,5 +1,6 @@
-from numpy import array, zeros, dot, repeat, linalg, exp, outer, all
+from numpy import *
 import scipy.special
+import math
 
 
 def sigmoid_deriv(x):
@@ -8,7 +9,18 @@ def sigmoid_deriv(x):
     return y
 
 
-def backpropagation(visibleSize, hiddenSize, numData, W1, W2, b1, b2, trainingSet, weightDecayLambda=0):
+def KLsum(sequence, desiredRho):
+    mean = sequence.mean(1)  # the mean activation of every colomn
+    s = 0
+    for num in mean:
+        s += num*math.log(num/desiredRho) + \
+            (1-num)*math.log((1-num)/(1-desiredRho))
+    return s
+
+
+def backpropagation(visibleSize, hiddenSize, numData,
+                    W1, W2, b1, b2, trainingSet, weightDecayLambda=0,
+                    sparsity_param=0.5, sparsity_weight_beta=3):
     # GRAD INITIALIZATION
     W1grad = zeros((hiddenSize, visibleSize))
     W2grad = zeros((visibleSize, hiddenSize))
@@ -23,14 +35,26 @@ def backpropagation(visibleSize, hiddenSize, numData, W1, W2, b1, b2, trainingSe
     # COST CALCULATION
     errors = [linalg.norm(out[:, i]-trainingSet[:, i]) for i in range(numData)]
     cost = 0.5*sum(errors)
+    # add the weight decay term
     cost += (weightDecayLambda/2.0)*(sum(sum(W1**2))+sum(sum(W2**2)))
+    # add the sparsity penalty term
+    cost += KLsum(hidA, sparsity_param)*sparsity_weight_beta
 
     # DELTA CALCULATION
     # delta for output layer
     deltaOutput = (-(trainingSet-out)) * sigmoid_deriv(outZ)
     # visibleSize by numData
-    deltaHidden = dot(W2.transpose(), deltaOutput) * sigmoid_deriv(hidZ)
+
+    rho = mean(hidA, 1)
+    sparsity_grad_term = sparsity_weight_beta * \
+        (-rho/sparsity_param + (1-rho)/(1-sparsity_param))
+    sparsity_grad_term = sparsity_grad_term.reshape((hiddenSize, 1))
+    sparsity_grad_term = repeat(sparsity_grad_term, numData, 1)
+    deltaHidden = (dot(W2.transpose(), deltaOutput) + sparsity_grad_term) \
+        * sigmoid_deriv(hidZ)
     # hiddenSize by numData
+    # without sparsity constraint
+    # deltaHidden = dot(W2.transpose(), deltaOutput) * sigmoid_deriv(hidZ)
 
     # the partial W partial J(W, b, x, y) x is the ith data
     # activation[previous_layer] times deltaOftheLayer
@@ -48,7 +72,8 @@ def backpropagation(visibleSize, hiddenSize, numData, W1, W2, b1, b2, trainingSe
     return W1grad, W2grad, b1grad, b2grad, cost
 
 
-def train(trainingSet, hiddenSize, learningRate, maxIteration=250000, weightDecayLambda=0):
+def train(trainingSet, hiddenSize, learningRate,
+          maxIteration=250000, weightDecayLambda=0):
     visibleSize = trainingSet.shape[0]
     numData = trainingSet.shape[1]
     # print(("numData", numData))
@@ -63,14 +88,15 @@ def train(trainingSet, hiddenSize, learningRate, maxIteration=250000, weightDeca
     it = 0
 
     while True:
-        W1grad, W2grad, b1grad, b2grad, cost = backpropagation(visibleSize, \
-            hiddenSize, numData, W1, W2, b1, b2, trainingSet, weightDecayLambda)
+        W1grad, W2grad, b1grad, b2grad, cost = \
+            backpropagation(visibleSize, hiddenSize, numData, W1, W2,
+                            b1, b2, trainingSet, weightDecayLambda)
         # already divided by the size of training set
 
         if all(W1grad == zeros((hiddenSize, visibleSize))) and \
-            all(b1grad == zeros((hiddenSize, 1))) and \
-            all(W2grad == zeros((visibleSize, hiddenSize))) and \
-            all(b2grad == zeros((visibleSize, 1))):
+           all(b1grad == zeros((hiddenSize, 1))) and \
+           all(W2grad == zeros((visibleSize, hiddenSize))) and \
+           all(b2grad == zeros((visibleSize, 1))):
             return W1, W2, b1, b2
         # update the weights
         W1 -= alpha * W1grad + weightDecayLambda * W1
@@ -79,10 +105,11 @@ def train(trainingSet, hiddenSize, learningRate, maxIteration=250000, weightDeca
         b2 -= alpha * b2grad.reshape(visibleSize, 1)
 
         it += 1
-        if it%50000==0:
+        if (it % 50000) == 0:
             print("Cost: %.5f" % cost)
-        if it>=maxIteration:
+        if it >= maxIteration:
             return W1, W2, b1, b2
+
 
 def forword(inputData, W1, W2, b1, b2):
     data = array(inputData).reshape(len(inputData), 1)
@@ -105,13 +132,14 @@ def test_autoencoder(trainingSet, W1, W2, b1, b2):
     return s/numData
 
 
-
-
 if __name__ == "__main__":
     hiddenSize = 6
     alpha = 0.02  # learning rate
-    trainingSet = array([(0.1, 0.2, 0.4, 0.25), (0.2, 0.4, 0.8, 0.5), (0.3, 0.5, 0.9, 0.6)])
-    W1, W2, b1, b2 = train(trainingSet, hiddenSize, alpha, weightDecayLambda=0.000001)
+    trainingSet = array([(0.1, 0.2, 0.4, 0.25),
+                         (0.2, 0.4, 0.8, 0.5), (0.3, 0.5, 0.9, 0.6)])
+    W1, W2, b1, b2 = train(trainingSet, hiddenSize,
+                           alpha, weightDecayLambda=0.000001)
+                           # maxIteration=10)
 
     score = test_autoencoder(trainingSet, W1, W2, b1, b2)
     print("Score: %.5f" % (score*1000))
@@ -124,5 +152,5 @@ if __name__ == "__main__":
 #
 #   with the weight decay term:
 #       (hiddenSize = 6, alpha = 0.02)
-#       when weightDecayLambda=0.0001, the autoencoder performs much worse in this training set
+#       when weightDecayLambda=0.0001, the autoencoder performs much worse
 #       when weightDecayLambda=0.000001, Score: 1.14421

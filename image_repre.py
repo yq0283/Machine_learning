@@ -4,10 +4,6 @@ import random
 
 def openGrayScale(imageName):
     # opens an image in gray scale mode
-    # try:
-    #     return Image.open(imageName).convert("L")
-    # except:
-    #     return None
     return Image.open(imageName).convert("L")
 
 
@@ -24,10 +20,33 @@ def randomSelect8x8(image):
     return l
 
 
-def plot8x8(grayscale_list):
+def plot8x8(grayscale_list, show=False):
     image = Image.new("L", (8, 8))
     image.putdata(grayscale_list)
-    image.show()
+    if show:
+        image.show()
+    return image
+
+
+def visualize_weight(weight, show=False):
+    # the weight should be an numpy array
+    numNeuron, numInput = weight.shape
+    weightList = weight.tolist()
+    # normalize the weights of each neuron
+    for i in range(len(weightList)):
+        neuron_weight = weightList[i]
+        mx = max(neuron_weight)
+        weightList[i] = [w*255/mx for w in neuron_weight]
+    print weightList
+
+    imageList = [plot8x8(neuron) for neuron in weightList]
+    bigImage = Image.new("L", (64, 64))
+    for i in range(len(imageList)):
+        im = imageList[i]
+        x, y = i//5, i % 5
+        bigImage.paste(im, (4+12*x, 4+12*y, 12+12*x, 12+12*y))
+    if show:
+        bigImage.show()
 
 
 def main():

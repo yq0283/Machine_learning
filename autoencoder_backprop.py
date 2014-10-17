@@ -1,6 +1,7 @@
 from numpy import *
 import scipy.special
 import math
+from image_repre import openGrayScale, randomSelect8x8, visualize_weight
 
 
 def sigmoid_deriv(x):
@@ -20,7 +21,7 @@ def KLsum(sequence, desiredRho):
 
 def backpropagation(visibleSize, hiddenSize, numData,
                     W1, W2, b1, b2, trainingSet, weightDecayLambda=0,
-                    sparsity_param=0.5, sparsity_weight_beta=3):
+                    sparsity_param=-1, sparsity_weight_beta=3):
     # GRAD INITIALIZATION
     W1grad = zeros((hiddenSize, visibleSize))
     W2grad = zeros((visibleSize, hiddenSize))
@@ -38,23 +39,26 @@ def backpropagation(visibleSize, hiddenSize, numData,
     # add the weight decay term
     cost += (weightDecayLambda/2.0)*(sum(sum(W1**2))+sum(sum(W2**2)))
     # add the sparsity penalty term
-    cost += KLsum(hidA, sparsity_param)*sparsity_weight_beta
+    if sparsity_param > 0:
+        cost += KLsum(hidA, sparsity_param)*sparsity_weight_beta
 
     # DELTA CALCULATION
     # delta for output layer
     deltaOutput = (-(trainingSet-out)) * sigmoid_deriv(outZ)
     # visibleSize by numData
 
-    rho = mean(hidA, 1)
-    sparsity_grad_term = sparsity_weight_beta * \
-        (-rho/sparsity_param + (1-rho)/(1-sparsity_param))
-    sparsity_grad_term = sparsity_grad_term.reshape((hiddenSize, 1))
-    sparsity_grad_term = repeat(sparsity_grad_term, numData, 1)
-    deltaHidden = (dot(W2.transpose(), deltaOutput) + sparsity_grad_term) \
-        * sigmoid_deriv(hidZ)
+    if sparsity_param > 0:
+        rho = mean(hidA, 1)
+        sparsity_grad_term = sparsity_weight_beta * \
+            (-rho/sparsity_param + (1-rho)/(1-sparsity_param))
+        sparsity_grad_term = sparsity_grad_term.reshape((hiddenSize, 1))
+        sparsity_grad_term = repeat(sparsity_grad_term, numData, 1)
+        deltaHidden = (dot(W2.transpose(), deltaOutput) + sparsity_grad_term) \
+            * sigmoid_deriv(hidZ)
+    else:
+        # without sparsity constraint
+        deltaHidden = dot(W2.transpose(), deltaOutput) * sigmoid_deriv(hidZ)
     # hiddenSize by numData
-    # without sparsity constraint
-    # deltaHidden = dot(W2.transpose(), deltaOutput) * sigmoid_deriv(hidZ)
 
     # the partial W partial J(W, b, x, y) x is the ith data
     # activation[previous_layer] times deltaOftheLayer
@@ -73,7 +77,7 @@ def backpropagation(visibleSize, hiddenSize, numData,
 
 
 def train(trainingSet, hiddenSize, learningRate,
-          maxIteration=250000, weightDecayLambda=0):
+          maxIteration=250000, weightDecayLambda=0, sparsity_param=-1):
     visibleSize = trainingSet.shape[0]
     numData = trainingSet.shape[1]
     # print(("numData", numData))
@@ -90,7 +94,8 @@ def train(trainingSet, hiddenSize, learningRate,
     while True:
         W1grad, W2grad, b1grad, b2grad, cost = \
             backpropagation(visibleSize, hiddenSize, numData, W1, W2,
-                            b1, b2, trainingSet, weightDecayLambda)
+                            b1, b2, trainingSet, weightDecayLambda,
+                            sparsity_param)
         # already divided by the size of training set
 
         if all(W1grad == zeros((hiddenSize, visibleSize))) and \
@@ -99,13 +104,14 @@ def train(trainingSet, hiddenSize, learningRate,
            all(b2grad == zeros((visibleSize, 1))):
             return W1, W2, b1, b2
         # update the weights
-        W1 -= alpha * W1grad + weightDecayLambda * W1
-        W2 -= alpha * W2grad + weightDecayLambda * W2
-        b1 -= alpha * b1grad.reshape(hiddenSize, 1)
-        b2 -= alpha * b2grad.reshape(visibleSize, 1)
+        W1 -= learningRate * W1grad + weightDecayLambda * W1
+        W2 -= learningRate * W2grad + weightDecayLambda * W2
+        b1 -= learningRate * b1grad.reshape(hiddenSize, 1)
+        b2 -= learningRate * b2grad.reshape(visibleSize, 1)
 
         it += 1
-        if (it % 50000) == 0:
+        if (it % 1000) == 0:
+            visualize_weight(W1,show=True)
             print("Cost: %.5f" % cost)
         if it >= maxIteration:
             return W1, W2, b1, b2
@@ -132,17 +138,24 @@ def test_autoencoder(trainingSet, W1, W2, b1, b2):
     return s/numData
 
 
-if __name__ == "__main__":
-    hiddenSize = 6
-    alpha = 0.02  # learning rate
-    trainingSet = array([(0.1, 0.2, 0.4, 0.25),
-                         (0.2, 0.4, 0.8, 0.5), (0.3, 0.5, 0.9, 0.6)])
+def main():
+    hiddenSize = 25
+    alpha = 0.01  # learning rate
+    # trainingSet = array([(0.1, 0.2, 0.4, 0.25),
+    #                      (0.2, 0.4, 0.8, 0.5), (0.3, 0.5, 0.9, 0.6)])
+    image = openGrayScale("reus.png")
+    trainingSet = []
+    for i in range(1000):
+        trainingSet.append(randomSelect8x8(image))
+    trainingSet = array(trainingSet).transpose()/255.0  # normalization
     W1, W2, b1, b2 = train(trainingSet, hiddenSize,
-                           alpha, weightDecayLambda=0.000001)
-                           # maxIteration=10)
-
+                           alpha, weightDecayLambda=0,
+                           maxIteration=10000, sparsity_param=-1)
     score = test_autoencoder(trainingSet, W1, W2, b1, b2)
     print("Score: %.5f" % (score*1000))
+
+if __name__ == '__main__':
+    main()
 
 
 # test_autoencoder error measurement over the training set:
